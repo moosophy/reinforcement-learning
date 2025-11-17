@@ -70,9 +70,43 @@ class Agent:
                 best_value = action_value
                 best_action = action
         return best_action
+    
+    # Similar to random_n_steps, but now the actions are not random. We continue populating the
+    # tables
+    def play_episode(self, env):
+        total_reward = 0.0
+        state, _ = env.reset()
+        terminated, truncated = False, False
 
+        while not (terminated or truncated):
+            action = self.select_action(state)
+            next_state, reward, terminated, truncated, info = env.step(action)
 
+            self.reward_table[(self.state, action, next_state)] = reward
+            total_reward += reward
+
+            if (self.state, action) not in self.transition_table:
+                self.transition_table[(self.state, action)] = dict()            
+            if next_state not in self.transition_table[(self.state, action)].keys():
+                self.transition_table[(self.state, action)][next_state] = 1
+            else:
+                self.transition_table[(self.state, action)][next_state] += 1
+
+            self.state = next_state
+
+        return total_reward
+    
+    # for every state we see the best action to take, thus calculating the value of 
+    # each state and populating the value_table
+    def value_iteration(self):
+        for state in range(self.env.observation_space.n):
+            action_values = []
+            for action in range(self.env.action_space.n):
+                value = self.calc_action_value(state, action)
+                action_values.append(value)
             
+            self.value_table[state] = max(action_values)
+
 
 
 if __name__ == "__main__":
