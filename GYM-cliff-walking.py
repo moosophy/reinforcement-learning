@@ -59,8 +59,21 @@ class Agent:
             value += probability*(reward)
 
         return value
+    
+    #given a state, it calculates the values of all possible actions from that states and 
+    # selects the best one
+    def select_best_action(self, state):
+        best_value, best_action = 0.0, 0
+        for action in range(self.env.action_space.n):
+            action_value = self.calc_action_value(state, action)
+            if action_value >= best_value:
+                best_value = action_value
+                best_action = action
+        return best_action
+
+
             
-            
+
 
 if __name__ == "__main__":
     agent = Agent()
