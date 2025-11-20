@@ -11,7 +11,7 @@ GAMMA = 0.9
 
 class Agent:
     def __init__(self):
-        self.env = gym.make("CliffWalking-v1", render_mode="human", is_slippery=True)
+        self.env = gym.make("CliffWalking-v1", is_slippery=True)
         self.state, _ = self.env.reset()
 
         self.reward_table = dict()
@@ -24,10 +24,8 @@ class Agent:
             next_state, reward, terminated, truncated, info = self.env.step(action)
 
             self.reward_table[(self.state, action, next_state)] = reward
-            print(reward)
 
             # making a nested dictionary transition_table
-
             if (self.state, action) not in self.transition_table:
                 self.transition_table[(self.state, action)] = dict()            
             if next_state not in self.transition_table[(self.state, action)].keys():
@@ -54,16 +52,16 @@ class Agent:
         for next_state, count in self.transition_table[(state, action)].items():
             probability = count/total_count
             reward = self.reward_table[(state, action, next_state)]
-            # Correct version:
-            # value += probability*(reward+GAMMA*self.value_table[next_state])
-            value += probability*(reward)
+            if next_state not in self.value_table:
+                self.value_table[next_state] = 0
+            value += probability*(reward+GAMMA*self.value_table[next_state])
 
         return value
     
     #given a state, it calculates the values of all possible actions from that states and 
     # selects the best one
     def select_best_action(self, state):
-        best_value, best_action = 0.0, 0
+        best_value, best_action = -1000000.0, 0
         for action in range(self.env.action_space.n):
             action_value = self.calc_action_value(state, action)
             if action_value >= best_value:
@@ -77,24 +75,31 @@ class Agent:
         total_reward = 0.0
         state, _ = env.reset()
         terminated, truncated = False, False
-
-        while not (terminated or truncated):
-            action = self.select_action(state)
+        
+        turn = 0
+        while turn < 200:
+            action = self.select_best_action(state)
+            # print(f"chose action {action} on state {state}")
             next_state, reward, terminated, truncated, info = env.step(action)
 
-            self.reward_table[(self.state, action, next_state)] = reward
+            self.reward_table[(state, action, next_state)] = reward
             total_reward += reward
 
-            if (self.state, action) not in self.transition_table:
-                self.transition_table[(self.state, action)] = dict()            
-            if next_state not in self.transition_table[(self.state, action)].keys():
-                self.transition_table[(self.state, action)][next_state] = 1
+            if (state, action) not in self.transition_table:
+                self.transition_table[(state, action)] = dict()            
+            if next_state not in self.transition_table[(state, action)].keys():
+                self.transition_table[(state, action)][next_state] = 1
             else:
-                self.transition_table[(self.state, action)][next_state] += 1
+                self.transition_table[(state, action)][next_state] += 1
 
-            self.state = next_state
+            if terminated or truncated:
+                break
+
+            state = next_state
+            turn+=1
 
         return total_reward
+
     
     # for every state we see the best action to take, thus calculating the value of 
     # each state and populating the value_table
@@ -110,19 +115,59 @@ class Agent:
 
 
 if __name__ == "__main__":
+    env = gym.make("CliffWalking-v1", is_slippery=True)
     agent = Agent()
-    agent.random_n_steps(30)
 
-    print("\nReward table:")
-    for key, value in agent.reward_table.items():
-        print(key, value)
+    best_reward = 0.0
+    iteration = 0
 
-    print("\nTransition table:")
-    for key, value in agent.transition_table.items():
-        print(key, value)
+    while iteration < 2:
+        iteration += 1
 
-    print("\nAction value Q (initial state, move right):")
-    print(agent.calc_action_value(36, 1))
+        # collect some random transitions
+        agent.random_n_steps(10000)
+        
+
+
+        # For debugging
+        print("\nReward table:")
+        for key, value in agent.reward_table.items():
+            if key[0] == 35:
+                print(key, value)
+        print("\nTransition table:")
+        for key, value in agent.transition_table.items():
+            if key[0] == 35:
+                print(key, value)
+        print("Action value for moving left from state 35:")     
+        print(agent.calc_action_value(35,3))
+
+
+        # update value function (one sweep)
+        
+        agent.value_iteration()
+        # print("value iteration done")
+        # print("value_table:")
+        # for state, value in agent.value_table.items():
+        #     print(state, value)
+
+
+        # test current policy
+        reward = 0.0
+        for _ in range(20):
+            reward += agent.play_episode(env)
+        reward /= 20
+
+        print(f"Iteration {iteration}, average reward = {reward:.3f}")
+
+        if reward > best_reward:
+            print(f"  best reward improved: {best_reward:.3f} -> {reward:.3f}")
+            best_reward = reward
+
+        # stop condition
+        if reward > 0.80:
+            print(f"Solved in {iteration} iterations!")
+            break
+
 
 
 
