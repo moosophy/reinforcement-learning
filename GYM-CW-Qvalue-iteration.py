@@ -1,6 +1,6 @@
 import gymnasium as gym
 
-# The same logic as in GYM-cliff-walking.py, but we combined calc_action value with value_iteration. This way
+# The same logic as in GYM-CW-value-iteration.py, but we combined calc_action value with value_iteration. This way
 # our value_table transforms into action_value_table so we only store Qs, and we calculate the values of states
 # based on the Qs.
 
@@ -30,7 +30,8 @@ class Agent:
 
             # making a nested dictionary transition_table
             if (self.state, action) not in self.transition_table:
-                self.transition_table[(self.state, action)] = dict()            
+                self.transition_table[(self.state, action)] = dict()
+                            
             if next_state not in self.transition_table[(self.state, action)].keys():
                 self.transition_table[(self.state, action)][next_state] = 1
             else:
@@ -38,8 +39,8 @@ class Agent:
 
             self.state = next_state
     
-    # Given a state, it calculates the values of all possible actions from that state using calc_action_value() 
-    # and selects the best one
+    # Given a state, it takes the values of all possible acitons from action_value_table, selects the one with
+    # the best value, and returns the action.
     def select_best_action(self, state):
         best_value, best_action = -1000000.0, 0
         for action in range(self.env.action_space.n):
@@ -83,8 +84,8 @@ class Agent:
         return total_reward
 
     
-    # for every state we see the best action to take, thus calculating the value of 
-    # each state and populating the action_value_table
+    # Calculates the action value of every action of every state using Bellman Equation. And adds this value to the 
+    # action_value_table.
     def value_iteration(self):
         for state in range(self.env.observation_space.n):
             for action in range(self.env.action_space.n):

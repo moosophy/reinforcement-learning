@@ -11,8 +11,8 @@ class Agent:
         # self.transition_table 
 
     def select_best_action(self, state):
-        # Given a state, it calculates the values of all possible actions from that state using calc_action_value() and 
-        # selects the best action (with the highest action value).
+        # Given a state, it takes the values of all possible acitons from action_value_table, selects the one with
+        # the best value, and returns the action.
         return best_action
     
     def value_iteration(self):
