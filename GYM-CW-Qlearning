@@ -1,5 +1,6 @@
 import gymnasium as gym
 import random
+# TODO: separate the exploration from exploitation like in the
 
 GAMMA = 0.9
 ALPHA = 0.2             # α - how much a new sample contributes to the action value (blending)
@@ -9,9 +10,7 @@ class Agent:
     def __init__(self):
         env = gym.make("CliffWalking-v1", is_slippery=True)
         self.env = gym.wrappers.TimeLimit(env, 200)
-        self.epsilon = 0.6              #originally the exploration probability is 60%, with episodes we will decrease it
 
-        self.step_table = set()         #set of tuples (state, action, reward, next_state)
         self.Q_table = dict()           #[(state, action)] : action_value
 
 
@@ -30,7 +29,7 @@ class Agent:
         return best_action
 
 
-    def play_episode(self, env=None):
+    def play_episode(self, env=None, epsilon=0):
         if env == None:
             env = self.env
 
@@ -39,14 +38,12 @@ class Agent:
         total_reward = 0.0
 
         while not (truncated or terminated):
-            action = self.select_action(state, self.epsilon)
+            action = self.select_action(state, epsilon)
 
             next_state, reward, terminated, truncated, info = env.step(action)
             if next_state == GOAL_STATE: reward = 100
 
             total_reward += reward
-
-            self.step_table.add((state, action, reward, next_state))
 
             if terminated or truncated:
                 best_next_Q = 0                                                                              #need to think this over
@@ -58,8 +55,6 @@ class Agent:
             self.Q_table[(state, action)] = old_Q + ALPHA * (new_Q - old_Q)
 
             state = next_state
-        
-        self.epsilon = max(0.005, self.epsilon*0.97)
 
         return total_reward
     
@@ -70,13 +65,22 @@ if __name__ == "__main__":
     agent = Agent()
 
     
-    for i in range(20):
-        total_reward = 0.0
-        for _ in range (10):            #we check our agent's precision every 20 plays
-            total_reward += agent.play_episode()
-        print(f"average reward for episode {i*10}: {total_reward/10}. Exploration rate is {agent.epsilon}")
+    epsilon = 0.5
+    for i in range(10):
+        #first we train our agent by playing 10 episodes with high exploration rate
+        for _ in range (10):            
+            agent.play_episode(epsilon=epsilon)
     
-    agent.play_episode(env)
+        #then we test it with high exploitation rate
+        reward = 0
+        for _ in range(10):
+            reward += agent.play_episode()
+        reward /= 10
+        print(f"Average reward after playing {i*10} episodes: {reward}")
+    
+
+    # For visualization:
+    agent.play_episode(env, epsilon=0)
             
 
 
