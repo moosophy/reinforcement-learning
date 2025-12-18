@@ -1,11 +1,14 @@
 import gymnasium as gym
 import numpy as np
+from sympy import li
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
 GAMMA = 0.99
 LEARNING_RATE = 0.01
+EPS = 4000                  #number of episodes to play
+BATCH_NUM = 50
 
 
 
@@ -36,8 +39,9 @@ class Agent:
 
         self.softmax = nn.Softmax(dim=1)
         
-        self.log_probabilities = [] #for calculating the loss
-        self.rewards = []
+        self.all_log_probs = []
+        self.rewards = [[] for _ in range(BATCH_NUM)]         
+        self.episode_number = 0     # goes up to BATCH_NUM, then resets (for batch management)
 
 
 
@@ -50,76 +54,119 @@ class Agent:
         action = torch.multinomial(probabilities, num_samples=1).item()     #picks the action based on its probability
 
         log_prob = torch.log(probabilities[0, action])
-        self.log_probabilities.append(log_prob)
+        self.all_log_probs.append(log_prob)
 
         return action
     
 
 
     def update_policy(self):
-        returns = []
-        G = 0
-        for r in reversed(self.rewards):    #going backwards
-            G = r + GAMMA * G
-            returns.append(G)
-        returns.reverse()
-
-        returns = torch.tensor(returns, dtype=torch.float32)
-
-        loss = 0
-        for i in range(len(self.log_probabilities)):
-            loss += -self.log_probabilities[i] * returns[i]
+        #self.episode_number = 20, 20 elements in self.log_probabilities and self.rewards
         
+        all_returns = []
+        for ep in range(BATCH_NUM):
+            ep_returns = []
+            G = 0
+            for r in reversed(self.rewards[ep]):    #going backwards
+                G = r + GAMMA * G
+                ep_returns.append(G)
+
+            ep_returns.reverse()
+            all_returns.extend(ep_returns)
+        
+        #all_returns and all_log_probs have the same length
+        
+        all_returns = torch.tensor(all_returns, dtype=torch.float32)
+
+        # all_returns = (all_returns - all_returns.mean()) / (all_returns.std() + 1e-8)
+        
+        loss = 0
+        for i in range(len(self.all_log_probs)):
+            loss += -self.all_log_probs[i] * all_returns[i]
+        
+        #normalize the loss so that it is not batch dependant (goes from 3763.1211 to 0.0137)
+        loss = loss / len(self.all_log_probs)
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        self.log_probabilities.clear()
-        self.rewards.clear()
+        
+        self.all_log_probs.clear()
+        self.rewards = [[] for _ in range(BATCH_NUM)]  
 
         
     
     def play_episode(self, env=None):
-        state, _ = self.env.reset()
+        if env == None:
+            env = self.env
+        state, _ = env.reset()
         terminated, truncated = False, False
         total_reward = 0.0
 
         while not (terminated or truncated):
             action = self.select_action(state)
-            next_state, reward, terminated, truncated, _ = self.env.step(action)
+            next_state, reward, terminated, truncated, _ = env.step(action)
             total_reward += reward
-            self.rewards.append(reward)
+            self.rewards[self.episode_number].append(reward)
 
             state = next_state
         
-        self.update_policy()
+        self.episode_number += 1
+        
+        if self.episode_number == BATCH_NUM:
+            self.update_policy()
+            self.episode_number = 0
+        return total_reward
+    
+
+
+    def evaluate(self, env=None):
+        if env == None:
+            env = self.env
+        state, _ = env.reset()
+        terminated, truncated = False, False
+        total_reward = 0
+
+        with torch.no_grad():
+            while not (terminated or truncated):
+                state_t = torch.tensor(state, dtype=torch.float32)
+                state_t = state_t.unsqueeze(0)
+
+                prediction = self.policy(state_t)
+                probabilities = self.softmax(prediction) 
+                
+                action = torch.argmax(probabilities, dim=1).item() #picks the best action
+
+                state, reward, terminated, truncated, _ = env.step(action)
+                total_reward += reward
+
         return total_reward
 
 
 
 
+
 if __name__ == "__main__":
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1", render_mode="human")
     agent = Agent()
 
-    for i in range(1, 100):
-        # train 10 episodes per batch
-        for _ in range(10):
+    for i in range(BATCH_NUM, EPS, BATCH_NUM):
+        # train one batch
+        for _ in range(BATCH_NUM):
             agent.play_episode()
 
         # evaluate for 5 episodes
         reward = 0
         for _ in range(5):
-            reward += agent.play_episode()
+            reward += agent.evaluate()
         reward /= 5
 
-        print(f"Average reward after {i*10} episodes: {reward}")
+        print(f"Average reward after {i} episodes: {reward}")
 
-        if reward ==500.0:
-            agent.play_episode(env= env)
     
     # final visualization
-    agent.play_episode(env= env)
+    agent.evaluate(env=env)
 
 
 
