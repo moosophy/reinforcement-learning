@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-#This version seems to work, at some point it reaches 500/500 points, but then collapses and never stabelizes.
+#This version is much better, but still never stabilizes completely.
 
 EPS = 10000
 ROLLOUT = 32        #num of steps to take before using them to update the network
@@ -20,7 +20,7 @@ class ActorCritic(nn.Module):
     def __init__(self, input_shape, num_actions):
         super().__init__()
         self.body = nn.Sequential(
-            nn.Linear(input_shape, 128),            #input:
+            nn.Linear(input_shape, 128),           
             nn.ReLU(),       
         )
         self.actor_head = nn.Linear(128, num_actions)
@@ -85,6 +85,10 @@ class Agent():
             loss_critic = advantage**2
             total_loss += loss_actor + ALPHA * loss_critic
 
+        entropy = dist.entropy()
+        loss_entropy = -0.01 * entropy.sum()
+        total_loss += loss_entropy
+
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
@@ -123,6 +127,33 @@ class Agent():
             state = next_state
         
         return total_reward
+    
+
+
+    def evaluate(self, env=None):
+        if env == None:
+            env = self.env
+
+        state, _ = env.reset()
+        terminated, truncated = False, False
+        total_reward = 0
+
+        with torch.no_grad():
+            while not (terminated or truncated):
+                state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+
+                logits, _ = self.net(state)
+                probabilities = self.softmax(logits)
+
+                action = torch.argmax(probabilities, dim=1).item()
+                next_state, reward, terminated, truncated, _ = env.step(action)
+
+                total_reward+= reward
+                state = next_state
+
+        return total_reward
+
+
 
 
 if __name__ == "__main__":
@@ -130,11 +161,13 @@ if __name__ == "__main__":
     agent = Agent()
     
     for i in range(EPS):
-        reward = agent.play_episode()
+        agent.play_episode()
         if not i % 100:
+            reward = agent.evaluate()
             print(f"total reward after {i} episodes: {reward}")
     
-    agent.play_episode(env=env)
+    #Visualization:
+    agent.evaluate(env=env)
 
 
 
