@@ -7,11 +7,13 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-EPS = 2000
-ROLLOUT = 10        #num of steps to take before _
+#This version seems to work, at some point it reaches 500/500 points, but then collapses and never stabelizes.
+
+EPS = 10000
+ROLLOUT = 32        #num of steps to take before using them to update the network
 GAMMA = 0.9
 ALPHA = 0.5
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.0001
 
 
 class ActorCritic(nn.Module):
@@ -61,6 +63,7 @@ class Agent():
         rewards = torch.tensor(self.rewards, dtype=torch.float32)
 
         logits, Vs = self.net(states)
+        Vs = Vs.squeeze(-1)
 
         dist = torch.distributions.Categorical(logits=logits)
         log_probs = dist.log_prob(actions)                 #we calculate only for the action we actually took
@@ -75,8 +78,8 @@ class Agent():
 
         
         total_loss = 0
-        for i in reversed(range(ROLLOUT)):
-            R = self.rewards[i] + GAMMA * R
+        for i in reversed(range(len(rewards))):
+            R = rewards[i] + GAMMA * R
             advantage = R - Vs[i]
             loss_actor = -log_probs[i] * advantage.detach()
             loss_critic = advantage**2
@@ -104,6 +107,7 @@ class Agent():
         while not (terminated or truncated):
             action = self.select_action(state)
             next_state, reward, terminated, truncated, _ = env.step(action)
+            total_reward+= reward
 
             state = torch.tensor(state)
 
@@ -112,7 +116,7 @@ class Agent():
             self.rewards.append(reward)
 
             step += 1
-            if step >= ROLLOUT:
+            if step >= ROLLOUT or (terminated or truncated):
                 self.update_network(terminated or truncated)
                 step = 0
 
@@ -125,7 +129,7 @@ if __name__ == "__main__":
     env = gym.make("CartPole-v1", render_mode="human")
     agent = Agent()
     
-    for i in range(10000):
+    for i in range(EPS):
         reward = agent.play_episode()
         if not i % 100:
             print(f"total reward after {i} episodes: {reward}")
