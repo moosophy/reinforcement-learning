@@ -1,5 +1,4 @@
 
-from turtle import reset
 import gymnasium as gym
 import numpy as np
 from sympy import li
@@ -9,54 +8,129 @@ import torch.optim as optim
 
 
 EPS = 2000
-BATCH = 32
+ROLLOUT = 10        #num of steps to take before _
+GAMMA = 0.9
+ALPHA = 0.5
+LEARNING_RATE = 0.01
 
-class NeuralNetwork(nn.Module):
-    def __init__(self):
+
+class ActorCritic(nn.Module):
+    def __init__(self, input_shape, num_actions):
         super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(),            #input:
-            nn.ReLU(),
-            nn.Linear()             #output:
+        self.body = nn.Sequential(
+            nn.Linear(input_shape, 128),            #input:
+            nn.ReLU(),       
         )
+        self.actor_head = nn.Linear(128, num_actions)
+        self.critic_head = nn.Linear(128, 1)
     
     def forward(self, input):
-        return(self.fc(input))
+        input = self.body(input)
+        actor_logits = self.actor_head(input)
+        critic_V = self.critic_head(input)
+        return actor_logits, critic_V
     
+
 
 
 class Agent():
     def __init__(self):
         self.env = gym.make("CartPole-v1")
+        self.net = ActorCritic(int(np.prod(self.env.observation_space.shape)), self.env.action_space.n)
+
+        self.softmax = nn.Softmax(dim=1)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=LEARNING_RATE)
+
+        self.ep_number = 0
+        self.states, self.actions, self.rewards = [], [], []
+
 
 
     def select_action(self, state):
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        logits, _ = self.net(state)
+        probabilities = self.softmax(logits)
+        action = torch.multinomial(probabilities, num_samples=1).item()
         return action
+    
+
+
+    def update_network(self, is_terminated):
+        states = torch.stack(self.states)
+        actions = torch.tensor(self.actions)
+        rewards = torch.tensor(self.rewards, dtype=torch.float32)
+
+        logits, Vs = self.net(states)
+
+        dist = torch.distributions.Categorical(logits=logits)
+        log_probs = dist.log_prob(actions)                 #we calculate only for the action we actually took
+
+        # print("\nlog_probs tensor")
+        # for i in range (3): (print(log_probs[i])   )    
+
+        if is_terminated:
+            R = 0
+        else:
+            R = Vs[-1].detach()
+
+        
+        total_loss = 0
+        for i in reversed(range(ROLLOUT)):
+            R = self.rewards[i] + GAMMA * R
+            advantage = R - Vs[i]
+            loss_actor = -log_probs[i] * advantage.detach()
+            loss_critic = advantage**2
+            total_loss += loss_actor + ALPHA * loss_critic
+
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        self.states.clear()
+        self.rewards.clear()
+        self.actions.clear()
+
     
 
     def play_episode(self, env=None):
         if env == None:
             env = self.env
 
-        state, _ = self.env.reset()
+        state, _ = env.reset()
         terminated, truncated = False, False
         total_reward = 0.0
+        step = 0
         
         while not (terminated or truncated):
             action = self.select_action(state)
-            next_state, reward, terminated, truncated, _ = env.step()
+            next_state, reward, terminated, truncated, _ = env.step(action)
 
-            self.select_action(state)
+            state = torch.tensor(state)
+
+            self.states.append(state)
+            self.actions.append(action)
+            self.rewards.append(reward)
+
+            step += 1
+            if step >= ROLLOUT:
+                self.update_network(terminated or truncated)
+                step = 0
 
             state = next_state
+        
+        return total_reward
 
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v1", render_mode="human")
     agent = Agent()
     
-    for i in range(BATCH, EPS, BATCH):
-        agent.play_episode()
+    for i in range(10000):
+        reward = agent.play_episode()
+        if not i % 100:
+            print(f"total reward after {i} episodes: {reward}")
+    
+    agent.play_episode(env=env)
 
 
 
